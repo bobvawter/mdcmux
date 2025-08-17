@@ -1,0 +1,21 @@
+{
+  "bind": "127.0.0.1",
+  "policy": {
+    "127.0.0.1/32": {
+      "allow_unsafe": false
+    }
+  },
+  "targets": {
+    "minimill.cnc.llc:5501": {
+      "proxy_port": 5051
+    },
+    "umc750.cnc.llc:5501": {
+      "proxy_port": 5052,
+      "policy": {
+        "10.1.0.0/16": {
+          "allow_unsafe": true
+        }
+      }
+    }
+  }
+}
