@@ -7,22 +7,15 @@ improve upon the existing [Machine Data
 Collection](https://www.haascnc.com/service/troubleshooting-and-how-to/how-to/machine-data-collection---ngc.html#gsc.tab=0)
 network protocol. This ultimately allows machine data to be more readily
 available outside the locked-down LAN to which the machine controls are
-attached. This supports a number of dashboard and software integrations I'm
+typically attached. `mdcmux` supports a number of dashboard and software integrations I'm
 building over at [CNC.LLC](https://cnc.llc).
 
 Features:
-
 * [X] Allow an arbitrary number of network clients to connect to an arbitrary number of controls.
 * [X] Parse, validate, and proxy individual MDC messages.
 * [X] Restrict access and allowable MDC commands by IP address range.
 * [X] Allow writes only to certain macro variable ranges (e.g. protect the WIPS calibration data).
 * [X] Audit logging
-
-MDC protocol enhancements:
-
-* [ ] Selecting backends on the fly.
-* [ ] Support for TLS between clients and the proxy.
-* [ ] Support JWT-based policy decisions.
 
 ## Rationale
 
@@ -39,13 +32,19 @@ actors to execute commands which could negatively impact the MDC host.
 
 ## Installing
 
-GitHub workflows are currently TODO.
+Binaries are available from the [GitHub Releases](https://github.com/bobvawter/mdcmux/releases) page
 
-`go install vawter.tech/mdcmux@main`
+Installation from source:
+
+```sh
+go install vawter.tech/mdcmux
+```
 
 ## Proxy use
 
-`mdcmux start -c config.json -v`
+```sh
+mdcmux start -c mdcmux.json -v
+```
 
 The configuration file defines an IP address for the proxy to bind to, which
 defaults to `localhost`. Multiple MDC targets may be defined and are proxied on
@@ -98,6 +97,7 @@ The `mdcmux` binary contains a trivial MDC server implementation, with canned
 replied to most `Q` codes. It does support `?Q600` and `?E` commands.
 
 ```
+# Start a background server
 mdcmux dummy --bind 127.0.0.1:13013 &
 
 # You can use PuTTY, etc.
@@ -120,4 +120,4 @@ nc 127.0.0.1 13013
 
 This software is provided as-is, without warranty of any kind.
 
-This project is not associated with or endorsed by Haas Automation, Inc.
+This project is not associated with or endorsed by [Haas Automation, Inc](https://haascnc.com).
