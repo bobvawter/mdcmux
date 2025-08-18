@@ -1,12 +1,12 @@
 version: 2
-
+project_name: mdcmux
 before:
   hooks:
     - go mod tidy
     - go generate ./...
     - go vet ./...
     - go tool honnef.co/go/tools/cmd/staticcheck ./...
-    - go tool github.com/google/addlicense -c "Bob Vawter (bob@vawter.org)" -l mit -s -check -ignore '**/*.xml'  -ignore '**/*.yaml' .
+    - go tool github.com/google/addlicense -c "Bob Vawter (bob@vawter.org)" -l mit -s -check -ignore '**/*.xml'  -ignore '**/*.yaml' -ignore 'Dockerfile' .
 
 builds:
   - env:
@@ -16,8 +16,21 @@ builds:
       - windows
       - darwin
 
+kos:
+  - repositories:
+      - "bobvawter/mdcmux"
+      - "ghcr.io/bobvawter/mdcmux"
+    tags:
+      - "{{.Version}}"
+      - latest
+    bare: true
+    preserve_import_paths: false
+    platforms:
+      - linux/amd64
+      - linux/arm64
+
 archives:
-  - formats: [tar.gz]
+  - formats: [ tar.gz ]
     # this name template makes the OS and Arch compatible with the results of `uname`.
     name_template: >-
       {{ .ProjectName }}_
@@ -29,7 +42,7 @@ archives:
     # use zip for windows archives
     format_overrides:
       - goos: windows
-        formats: [zip]
+        formats: [ zip ]
 
 changelog:
   sort: asc
