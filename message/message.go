@@ -177,7 +177,7 @@ var (
 	queryCommand  = queryPattern.SubexpIndex("command")
 	queryVariable = queryPattern.SubexpIndex("variable")
 
-	writePattern  = regexp.MustCompile(`^(?P<variable>\d+)\s+(?P<value>\d+(?:\.\d*)?)\s*$`)
+	writePattern  = regexp.MustCompile(`^(?P<variable>\d+)\s+(?P<value>[+-]?\d+(?:\.\d*)?)\s*$`)
 	writeVariable = writePattern.SubexpIndex("variable")
 	writeValue    = writePattern.SubexpIndex("value")
 )
