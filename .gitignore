@@ -1,2 +1,4 @@
 .idea
 mdcmux
+# Added by goreleaser init:
+dist/
