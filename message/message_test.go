@@ -78,6 +78,7 @@ func TestFormatNumber(t *testing.T) {
 		E string
 	}{
 		{S: "1.2", F: "%d", E: "1"},
+		{S: "-1.2", F: "%d", E: "-1"},
 
 		{S: "1.0", F: "%f", E: "1.0"},
 
@@ -125,6 +126,8 @@ func TestParseMessage(t *testing.T) {
 		{S: "?E1 Y", Err: "expecting a variable number"},
 
 		{S: "?E12 567", M: Write(Int64(12), Int64(567)), C: "?E12 567.0"},
+		{S: "?E12 -567", M: Write(Int64(12), Int64(-567)), C: "?E12 -567.0"},
+		{S: "?E12 +567", M: Write(Int64(12), Int64(567)), C: "?E12 567.0"},
 		{S: "?E12 567.", M: Write(Int64(12), Int64(567)), C: "?E12 567.0"},
 		{S: "?E12.34 567.8", Err: "expecting a variable number"},
 	}
