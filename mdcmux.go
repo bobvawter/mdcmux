@@ -31,6 +31,7 @@ import (
 
 	"github.com/spf13/cobra"
 	"vawter.tech/mdcmux/cmd/dummy"
+	"vawter.tech/mdcmux/cmd/legal"
 	"vawter.tech/mdcmux/cmd/mdcmux"
 	"vawter.tech/stopper"
 )
@@ -49,8 +50,9 @@ func main() {
 	}
 	root.PersistentFlags().DurationVar(&drainTime, "drain", time.Minute, "connection drain time")
 	root.PersistentFlags().BoolVarP(&verbose, "verbose", "v", false, "verbose output")
-	root.AddCommand(mdcmux.Command())
 	root.AddCommand(dummy.Command())
+	root.AddCommand(legal.Command())
+	root.AddCommand(mdcmux.Command())
 
 	ctx := stopper.WithContext(context.Background())
 	ctx.Go(func(ctx *stopper.Context) error {
