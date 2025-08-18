@@ -16,7 +16,7 @@ Features:
 * [X] Parse, validate, and proxy individual MDC messages.
 * [X] Restrict access and allowable MDC commands by IP address range.
 * [X] Allow writes only to certain macro variable ranges (e.g. protect the WIPS calibration data).
-* [ ] Audit logging
+* [X] Audit logging
 
 MDC protocol enhancements:
 
@@ -74,7 +74,8 @@ configuration file or on a per-target basis.
             [1, 33],
             [10200, 10299],
             [10800, 10999]
-          ]
+          ],
+          "audit": true
         }
       }
     }
@@ -87,6 +88,9 @@ controls to ports `5051` and `5052`. The `10.0.0.0/8` netblock is allowed to
 connect to the proxy, may issue documented `?Q` commands, and may read any macro
 variables. Further down, the `10.2.2.0/24` netblock is allowed to write to a
 limited range of macro variables.
+
+When the `audit` option is set, the proxy interactions will be logged in
+complete detail.
 
 ## Dummy server
 

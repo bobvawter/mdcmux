@@ -24,6 +24,7 @@ package mdcmux
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log/slog"
 	"os"
@@ -43,6 +44,9 @@ func Command() *cobra.Command {
 		Use:   "start",
 		Short: "Start the MDC proxy",
 		RunE: func(cmd *cobra.Command, args []string) error {
+			if cfgPath == "" {
+				return errors.New("no config file specified")
+			}
 			ctx := stopper.From(cmd.Context())
 
 			var cfg notify.Var[*proxy.Config]

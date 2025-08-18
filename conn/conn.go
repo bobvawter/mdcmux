@@ -88,8 +88,8 @@ func (c *Conn) Write(ctx context.Context, msg message.Message) (message.Message,
 			return nil, err
 		}
 		slog.InfoContext(ctx,
-			"connected to MDC host",
-			slog.String("hostname", c.hostname),
+			"connected to MDC backend",
+			slog.String("backend", c.hostname),
 			slog.Any("sn", resp))
 	}
 
