@@ -52,17 +52,23 @@ func TestProxy(t *testing.T) {
 	d, err := dummy.New(ctx, "127.0.0.1:0")
 	r.NoError(err)
 
-	cfg := &Config{
-		Bind:   netip.AddrFrom4([4]byte{127, 0, 0, 1}),
-		Policy: nil,
+	cfg := notify.VarOf(&Config{
+		Bind: netip.AddrFrom4([4]byte{127, 0, 0, 1}),
+		Policy: map[netip.Prefix]*Policy{
+			netip.MustParsePrefix("127.0.0.1/32"): {
+				AllowWrites: [][2]int{
+					{1, 33},
+				},
+			},
+		},
 		Targets: map[string]*Target{
 			d.Addr().String(): {
 				ProxyPort: 0,
 			},
 		},
-	}
+	})
 
-	p, err := New(ctx, notify.VarOf(cfg))
+	p, err := New(ctx, cfg)
 	r.NoError(err)
 
 	var pConn *conn.Conn
@@ -88,7 +94,42 @@ func TestProxy(t *testing.T) {
 		break
 	}
 
-	resp, err := pConn.Write(ctx, message.Basic(message.CommandMachineModel))
-	r.NoError(err)
-	r.Equal(">>MODEL, MDCMUX", resp.(fmt.Stringer).String())
+	check := func(r *require.Assertions, expected string, msg message.Message) {
+		resp, err := pConn.Write(ctx, msg)
+		r.NoError(err)
+		r.Equal(expected, resp.(fmt.Stringer).String())
+	}
+
+	t.Run("basic", func(t *testing.T) {
+		r := require.New(t)
+		check(r, ">>MODEL, MDCMUX", message.Basic(message.CommandMachineModel))
+		check(r, ">>?, MDCMUX DENY POLICY", message.Basic(message.Int64(999)))
+	})
+
+	t.Run("writes", func(t *testing.T) {
+		r := require.New(t)
+		check(r, ">>!", message.Write(message.Int64(2), message.NewNumber(3, 141592)))
+		check(r, ">>?, MDCMUX DENY POLICY", message.Write(message.Int64(200), message.NewNumber(3, 141592)))
+		check(r, ">>MACRO, 3.141592", message.Query(message.Int64(2)))
+	})
+
+	t.Run("no_policy_match", func(t *testing.T) {
+		r := require.New(t)
+
+		_, reconfigured := p.reconfigured.Get()
+		cfg.Set(&Config{
+			Bind: netip.AddrFrom4([4]byte{127, 0, 0, 1}),
+			Policy: map[netip.Prefix]*Policy{
+				netip.MustParsePrefix("1.1.1.1/32"): {},
+			},
+			Targets: map[string]*Target{
+				d.Addr().String(): {
+					ProxyPort: 0,
+				},
+			},
+		})
+		<-reconfigured
+
+		check(r, ">>?, MDCMUX NO POLICY MATCH", message.Basic(message.CommandMachineModel))
+	})
 }

@@ -41,6 +41,7 @@ import (
 )
 
 type Proxy struct {
+	cfg          *notify.Var[*Config]
 	reconfigured notify.Var[struct{}] // For testing.
 
 	mu struct {
@@ -67,7 +68,7 @@ type Route struct {
 }
 
 func New(ctx *stopper.Context, cfg *notify.Var[*Config]) (*Proxy, error) {
-	p := &Proxy{}
+	p := &Proxy{cfg: cfg}
 	p.mu.connByHostname = make(map[string]*conn.Conn)
 	p.mu.listeners = make(map[netip.AddrPort]*net.TCPListener)
 	p.mu.routes = make(map[*net.TCPListener]*Route)
@@ -195,8 +196,17 @@ func (p *Proxy) proxy(ctx *stopper.Context, listener *net.TCPListener, tcpConn *
 	remote := tcpConn.RemoteAddr().(*net.TCPAddr).AddrPort()
 	logger := slog.With(slog.Any("client", remote))
 
+	// Updated at the bottom of the loop.
+	idleSince := time.Now()
 	for {
 		if ctx.IsStopping() {
+			return nil
+		}
+
+		// Impose maximum connection idle time behavior.
+		cfg, _ := p.cfg.Get()
+		if time.Since(idleSince) >= cfg.MaxIdle {
+			logger.DebugContext(ctx, "dropping idle connection")
 			return nil
 		}
 
@@ -262,16 +272,17 @@ func (p *Proxy) proxy(ctx *stopper.Context, listener *net.TCPListener, tcpConn *
 			}
 		}
 
-		// Default to deny-all behavior.
+		// If there's no matching policy for the remote IP, we want to hang up.
 		if policy == nil {
 			if err := writeError("MDCMUX NO POLICY MATCH"); err != nil {
 				return err
 			}
+			return nil
 		}
 
-		// Allow user to continue if an unsafe operation was denied.
-		if !policy.AllowUnsafe && !msg.IsSafe() {
-			if err := writeError("MDCMUX DENY UNSAFE"); err != nil {
+		// A failed access check doesn't kill the connection.
+		if !policy.Allow(msg) {
+			if err := writeError("MDCMUX DENY POLICY"); err != nil {
 				return err
 			}
 			continue
@@ -295,5 +306,7 @@ func (p *Proxy) proxy(ctx *stopper.Context, listener *net.TCPListener, tcpConn *
 		logger.DebugContext(ctx, "proxy response",
 			slog.Any("request", msg),
 			slog.Any("response", resp))
+
+		idleSince = time.Now()
 	}
 }

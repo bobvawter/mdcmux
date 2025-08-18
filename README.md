@@ -15,7 +15,7 @@ Features:
 * [X] Allow an arbitrary number of network clients to connect to an arbitrary number of controls.
 * [X] Parse, validate, and proxy individual MDC messages.
 * [X] Restrict access and allowable MDC commands by IP address range.
-* [ ] Allow / deny writes to certain macro variable ranges (e.g. WIPS calibration data).
+* [X] Allow writes only to certain macro variable ranges (e.g. protect the WIPS calibration data).
 * [ ] Audit logging
 
 MDC protocol enhancements:
@@ -60,9 +60,7 @@ configuration file or on a per-target basis.
 {
   "bind": "127.0.0.1",
   "policy": {
-    "127.0.0.1/32": {
-      "allow_unsafe": false
-    }
+    "10.0.0.0/8": {}
   },
   "targets": {
     "minimill.cnc.llc:5501": {
@@ -71,8 +69,12 @@ configuration file or on a per-target basis.
     "umc750.cnc.llc:5501": {
       "proxy_port": 5052,
       "policy": {
-        "10.1.0.0/16": {
-          "allow_unsafe": true
+        "10.1.2.0/24": {
+          "allow_writes": [
+            [1, 33],
+            [10200, 10299],
+            [10800, 10999]
+          ]
         }
       }
     }
@@ -80,7 +82,11 @@ configuration file or on a per-target basis.
 }
 ```
 
-The above configuration would proxy the MDC service on two different NGC controls to ports `5051` and `5052`.
+The above configuration would proxy the MDC service on two different NGC
+controls to ports `5051` and `5052`. The `10.0.0.0/8` netblock is allowed to
+connect to the proxy, may issue documented `?Q` commands, and may read any macro
+variables. Further down, the `10.2.2.0/24` netblock is allowed to write to a
+limited range of macro variables.
 
 ## Dummy server
 

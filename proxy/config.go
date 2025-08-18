@@ -27,15 +27,24 @@ import (
 	"log/slog"
 	"net/netip"
 	"slices"
+	"time"
+
+	"vawter.tech/mdcmux/message"
 )
+
+const defaultMaxIdle = 5 * time.Minute
 
 type Config struct {
 	Bind    netip.Addr               `json:"bind"`
+	MaxIdle time.Duration            `json:"max_idle"`
 	Policy  map[netip.Prefix]*Policy `json:"policy"`
 	Targets map[string]*Target       `json:"targets"`
 }
 
 func (c *Config) expandPolicy() {
+	if c.MaxIdle == 0 {
+		c.MaxIdle = defaultMaxIdle
+	}
 	for dest, tgt := range c.Targets {
 		ordered := make([]*orderedPolicy, 0, len(c.Policy)+len(tgt.Policy))
 
@@ -96,7 +105,39 @@ func (c *Config) expandPolicy() {
 }
 
 type Policy struct {
-	AllowUnsafe bool `json:"allow_unsafe"`
+	// AllowUndocumentedQ allows Q commands that are not present in the Haas
+	// Mill User's Guide to be proxied.
+	AllowUndocumentedQ bool `json:"allow_undocumented_q"`
+
+	// AllowWrites contains inclusive pairs of macro variable numbers that may
+	// be written to.
+	AllowWrites [][2]int `json:"allow_writes"`
+}
+
+// Allow returns true if the message is permitted by the policy.
+func (p *Policy) Allow(msg message.Message) bool {
+	if msg.IsSafe() {
+		return true
+	}
+	if msg.IsWrite() {
+		v, _ := msg.Variable()
+		return p.AllowWrite(int(v.Whole()))
+	}
+	if _, ok := msg.Command(); ok && p.AllowUndocumentedQ {
+		return true
+	}
+	return false
+}
+
+// AllowWrite returns true if writes to the given variable number are permitted
+// by the policy.
+func (p *Policy) AllowWrite(v int) bool {
+	for _, pair := range p.AllowWrites {
+		if pair[0] <= v && v <= pair[1] {
+			return true
+		}
+	}
+	return false
 }
 
 type Target struct {
