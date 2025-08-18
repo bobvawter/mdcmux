@@ -38,17 +38,29 @@ import (
 
 func main() {
 	var drainTime time.Duration
+	var jsonLog bool
 	var verbose bool
 	root := &cobra.Command{
 		Use: "mdcmux",
 		PersistentPreRunE: func(cmd *cobra.Command, args []string) error {
+			opts := &slog.HandlerOptions{}
 			if verbose {
-				slog.SetLogLoggerLevel(slog.LevelDebug)
+				opts.Level = slog.LevelDebug
 			}
+			var h slog.Handler
+			if jsonLog {
+				h = slog.NewJSONHandler(os.Stdout, opts)
+			} else {
+				h = slog.NewTextHandler(os.Stdout, opts)
+			}
+			slog.SetDefault(slog.New(h))
 			return nil
 		},
+		SilenceErrors: true,
+		SilenceUsage:  true,
 	}
 	root.PersistentFlags().DurationVar(&drainTime, "drain", time.Minute, "connection drain time")
+	root.PersistentFlags().BoolVar(&jsonLog, "json", false, "enable json log output")
 	root.PersistentFlags().BoolVarP(&verbose, "verbose", "v", false, "verbose output")
 	root.AddCommand(dummy.Command())
 	root.AddCommand(legal.Command())

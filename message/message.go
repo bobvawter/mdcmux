@@ -27,6 +27,8 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log/slog"
+	"math"
 	"regexp"
 	"strconv"
 	"strings"
@@ -118,6 +120,17 @@ func (n Number) Frac() int64 {
 	return n.frac
 }
 
+// LogValue implements [slog.LogValuer].
+func (n Number) LogValue() slog.Value {
+	if n.frac == 0 {
+		return slog.Int64Value(n.whole)
+	}
+	w := float64(n.whole)
+	f := float64(n.frac)
+	v := math.FMA(f, math.Pow(10, -math.Ceil(math.Log10(f))), w)
+	return slog.Float64Value(v)
+}
+
 // Whole returns the whole portion of the Number.
 func (n Number) Whole() int64 {
 	return n.whole
@@ -146,9 +159,13 @@ func (n Number) String() string {
 
 // A Message is a Machine Data Collection message.
 type Message interface {
+	fmt.Stringer
+	slog.LogValuer
+
+	Buffer() ([]byte, bool)
 	Command() (Number, bool)
-	Variable() (Number, bool)
 	Value() (Number, bool)
+	Variable() (Number, bool)
 
 	// IsSafe returns true if the message is unlikely to cause damage to the MDC
 	// receiver.
@@ -165,6 +182,7 @@ type Message interface {
 
 type messageBase struct{}
 
+func (m *messageBase) Buffer() ([]byte, bool)   { return nil, false }
 func (m *messageBase) Command() (Number, bool)  { return Number{}, false }
 func (m *messageBase) IsWrite() bool            { return false }
 func (m *messageBase) IsSafe() bool             { return false }
@@ -265,6 +283,14 @@ func (c *basic) IsSafe() bool {
 	return ok
 }
 
+// LogValue implements [slog.LogValuer].
+func (c *basic) LogValue() slog.Value {
+	return slog.GroupValue(
+		slog.Any("command", c.command),
+		slog.Bool("safe", c.IsSafe()),
+	)
+}
+
 func (c *basic) String() string {
 	var sb strings.Builder
 	_, _ = c.WriteTo(&sb)
@@ -292,6 +318,14 @@ func (q *query) Command() (Number, bool)  { return CommandMacroVariable, true }
 func (q *query) IsSafe() bool             { return q.variable.whole >= 1 && q.variable.frac == 0 }
 func (q *query) Variable() (Number, bool) { return q.variable, true }
 
+func (q *query) LogValue() slog.Value {
+	return slog.GroupValue(
+		slog.Any("command", CommandMacroVariable),
+		slog.Bool("safe", q.IsSafe()),
+		slog.Any("variable", q.variable),
+	)
+}
+
 func (q *query) String() string {
 	var sb strings.Builder
 	_, _ = q.WriteTo(&sb)
@@ -315,6 +349,16 @@ var _ Message = (*response)(nil)
 func Response(data []byte) Message {
 	ret := response{buf: bytes.Clone(data)}
 	return &ret
+}
+
+func (r *response) Buffer() ([]byte, bool) {
+	return r.buf, true
+}
+
+func (r *response) LogValue() slog.Value {
+	return slog.GroupValue(
+		slog.String("payload", string(r.buf)),
+	)
 }
 
 func (r *response) String() string {
@@ -342,6 +386,14 @@ func Write(target, value Number) Message {
 func (w *write) IsWrite() bool            { return true }
 func (w *write) Variable() (Number, bool) { return w.variable, true }
 func (w *write) Value() (Number, bool)    { return w.value, true }
+
+func (w *write) LogValue() slog.Value {
+	return slog.GroupValue(
+		slog.Bool("write", true),
+		slog.Any("variable", w.variable),
+		slog.Any("value", w.value),
+	)
+}
 
 func (w *write) String() string {
 	var sb strings.Builder

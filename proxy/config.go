@@ -112,6 +112,9 @@ type Policy struct {
 	// AllowWrites contains inclusive pairs of macro variable numbers that may
 	// be written to.
 	AllowWrites [][2]int `json:"allow_writes"`
+
+	// Audit triggers additional logging for each message.
+	Audit bool `json:"audit"`
 }
 
 // Allow returns true if the message is permitted by the policy.

@@ -54,11 +54,11 @@ type Proxy struct {
 		// Network listeners are conserved.
 		listeners map[netip.AddrPort]*net.TCPListener
 
-		routes map[*net.TCPListener]*Route
+		routes map[*net.TCPListener]*listenerRoute
 	}
 }
 
-type Route struct {
+type listenerRoute struct {
 	mu struct {
 		sync.RWMutex
 
@@ -67,11 +67,25 @@ type Route struct {
 	}
 }
 
+func (r *listenerRoute) get(client netip.Addr) (*conn.Conn, *Policy, bool) {
+	r.mu.RLock()
+	mdc := r.mu.mdc
+	policies := r.mu.policies
+	r.mu.RUnlock()
+
+	for _, policy := range policies {
+		if policy.Contains(client) {
+			return mdc, policy.Policy, true
+		}
+	}
+	return nil, nil, false
+}
+
 func New(ctx *stopper.Context, cfg *notify.Var[*Config]) (*Proxy, error) {
 	p := &Proxy{cfg: cfg}
 	p.mu.connByHostname = make(map[string]*conn.Conn)
 	p.mu.listeners = make(map[netip.AddrPort]*net.TCPListener)
-	p.mu.routes = make(map[*net.TCPListener]*Route)
+	p.mu.routes = make(map[*net.TCPListener]*listenerRoute)
 
 	ctx.Go(func(ctx *stopper.Context) error {
 		_, err := notifyx.DoWhenChanged(ctx, nil, cfg, func(ctx *stopper.Context, _, cfg *Config) error {
@@ -83,7 +97,7 @@ func New(ctx *stopper.Context, cfg *notify.Var[*Config]) (*Proxy, error) {
 
 			nextConns := make(map[string]*conn.Conn)
 			nextListeners := make(map[netip.AddrPort]*net.TCPListener)
-			nextRoutes := make(map[*net.TCPListener]*Route)
+			nextRoutes := make(map[*net.TCPListener]*listenerRoute)
 
 			for hostname, target := range cfg.Targets {
 				// Find connection from previous generation.
@@ -116,7 +130,7 @@ func New(ctx *stopper.Context, cfg *notify.Var[*Config]) (*Proxy, error) {
 
 				r := p.mu.routes[l]
 				if r == nil {
-					r = &Route{}
+					r = &listenerRoute{}
 				}
 				nextRoutes[l] = r
 
@@ -157,21 +171,36 @@ func New(ctx *stopper.Context, cfg *notify.Var[*Config]) (*Proxy, error) {
 }
 
 func (p *Proxy) accept(ctx *stopper.Context, listener *net.TCPListener) {
-	logger := slog.With(slog.String("listener", listener.Addr().String()))
-
 	ctx.Go(func(ctx *stopper.Context) error {
 		for {
 			tcpConn, err := listener.AcceptTCP()
 			if err != nil {
 				// Being shut down, just exit.
-				logger.DebugContext(ctx, "no longer accepting connection")
 				return nil
+			}
+
+			client := tcpConn.RemoteAddr().(*net.TCPAddr).AddrPort()
+			logger := slog.With(
+				slog.Any("client", client),
+				slog.Any("listener", tcpConn.LocalAddr()))
+
+			// Allow late-binding of policies to reflect configuration file
+			// changes.
+			router := func() (*conn.Conn, *Policy, bool) {
+				return p.policyFor(listener, client.Addr())
+			}
+
+			// Immediately drop connections that we cannot route.
+			if _, _, ok := router(); !ok {
+				logger.DebugContext(ctx, "no route for connection")
+				_ = tcpConn.Close()
+				continue
 			}
 
 			// Service the individual connection.
 			ctx.Go(func(ctx *stopper.Context) error {
-				if err := p.proxy(ctx, listener, tcpConn); err != nil {
-					slog.ErrorContext(ctx, "could not proxy connection", "error", err)
+				if err := p.proxy(ctx, logger, tcpConn, router); err != nil {
+					logger.ErrorContext(ctx, "could not proxy connection", "error", err)
 				}
 				return nil
 			})
@@ -179,7 +208,10 @@ func (p *Proxy) accept(ctx *stopper.Context, listener *net.TCPListener) {
 	})
 }
 
-func (p *Proxy) proxy(ctx *stopper.Context, listener *net.TCPListener, tcpConn *net.TCPConn) error {
+func (p *Proxy) proxy(ctx *stopper.Context,
+	logger *slog.Logger,
+	tcpConn *net.TCPConn,
+	router func() (mdc *conn.Conn, policy *Policy, ok bool)) error {
 	defer func() { _ = tcpConn.Close() }()
 
 	in := bufio.NewScanner(tcpConn)
@@ -192,9 +224,6 @@ func (p *Proxy) proxy(ctx *stopper.Context, listener *net.TCPListener, tcpConn *
 		}
 		return out.Flush()
 	}
-
-	remote := tcpConn.RemoteAddr().(*net.TCPAddr).AddrPort()
-	logger := slog.With(slog.Any("client", remote))
 
 	// Updated at the bottom of the loop.
 	idleSince := time.Now()
@@ -229,15 +258,16 @@ func (p *Proxy) proxy(ctx *stopper.Context, listener *net.TCPListener, tcpConn *
 			continue
 		}
 
-		buf := in.Bytes()
+		// Record time between client requests.
+		clientLatency := time.Since(idleSince)
 
 		// Ignore empty lines.
-		if len(buf) == 0 {
+		if len(in.Bytes()) == 0 {
 			continue
 		}
 
 		// We now have a message to parse.
-		msg, err := message.Parse(buf)
+		msg, err := message.Parse(in.Bytes())
 		if err != nil {
 			logger.DebugContext(ctx, "could not parse message",
 				"error", err)
@@ -246,42 +276,30 @@ func (p *Proxy) proxy(ctx *stopper.Context, listener *net.TCPListener, tcpConn *
 
 		// Look up the route on each incoming message. This prevents old
 		// connections from retaining stale policies.
-		p.mu.RLock()
-		route := p.mu.routes[listener]
-		p.mu.RUnlock()
+		mdc, policy, ok := router()
 
 		// Deconfigured.
-		if route == nil {
+		if !ok {
 			logger.DebugContext(ctx, "no route found")
 			return nil
 		}
 
-		// Extract routing info to local stack.
-		route.mu.RLock()
-		logger := logger.With(slog.String("server", route.mu.mdc.Addr()))
-		mdc := route.mu.mdc
-		policies := route.mu.policies
-		route.mu.RUnlock()
+		logger := logger.With(slog.String("backend", mdc.Addr()))
 
-		// First match on policy wins.
-		var policy *orderedPolicy
-		for _, p := range policies {
-			if p.Contains(remote.Addr()) {
-				policy = p
-				break
-			}
-		}
-
-		// If there's no matching policy for the remote IP, we want to hang up.
-		if policy == nil {
-			if err := writeError("MDCMUX NO POLICY MATCH"); err != nil {
-				return err
-			}
-			return nil
+		var auditData []slog.Attr
+		if policy.Audit {
+			auditData = append(make([]slog.Attr, 0, 16),
+				slog.Bool("audit", true),
+				slog.Any("request", msg),
+			)
 		}
 
 		// A failed access check doesn't kill the connection.
 		if !policy.Allow(msg) {
+			if len(auditData) > 0 {
+				auditData = append(auditData, slog.Bool("deny", true))
+				logger.LogAttrs(ctx, slog.LevelInfo, "deny", auditData...)
+			}
 			if err := writeError("MDCMUX DENY POLICY"); err != nil {
 				return err
 			}
@@ -289,11 +307,13 @@ func (p *Proxy) proxy(ctx *stopper.Context, listener *net.TCPListener, tcpConn *
 		}
 
 		// Proxy the message across.
+		writeStart := time.Now()
 		resp, err := mdc.Write(ctx, msg)
 		if err != nil {
 			_ = writeError("MDCMUX PROXY ERROR")
 			return err
 		}
+		flushStart := time.Now()
 		if _, err := resp.WriteTo(out); err != nil {
 			return err
 		}
@@ -303,10 +323,33 @@ func (p *Proxy) proxy(ctx *stopper.Context, listener *net.TCPListener, tcpConn *
 		if err := out.Flush(); err != nil {
 			return err
 		}
-		logger.DebugContext(ctx, "proxy response",
-			slog.Any("request", msg),
-			slog.Any("response", resp))
+		flushEnd := time.Now()
+
+		if len(auditData) > 0 {
+			auditData = append(auditData,
+				slog.Group("latency",
+					slog.Duration("backend", flushStart.Sub(writeStart)),
+					slog.Duration("client", clientLatency),
+					slog.Duration("flush", flushEnd.Sub(flushStart)),
+				),
+				slog.Any("response", resp),
+			)
+			logger.LogAttrs(ctx, slog.LevelInfo, "proxy", auditData...)
+		}
 
 		idleSince = time.Now()
 	}
+}
+
+func (p *Proxy) policyFor(l *net.TCPListener, client netip.Addr) (
+	backend *conn.Conn, policy *Policy, ok bool,
+) {
+	p.mu.RLock()
+	route := p.mu.routes[l]
+	p.mu.RUnlock()
+
+	if route == nil {
+		return nil, nil, false
+	}
+	return route.get(client)
 }

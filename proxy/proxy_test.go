@@ -25,6 +25,7 @@ package proxy
 import (
 	"context"
 	"fmt"
+	"io"
 	"log/slog"
 	"net/netip"
 	"testing"
@@ -59,6 +60,7 @@ func TestProxy(t *testing.T) {
 				AllowWrites: [][2]int{
 					{1, 33},
 				},
+				Audit: true,
 			},
 		},
 		Targets: map[string]*Target{
@@ -130,6 +132,8 @@ func TestProxy(t *testing.T) {
 		})
 		<-reconfigured
 
-		check(r, ">>?, MDCMUX NO POLICY MATCH", message.Basic(message.CommandMachineModel))
+		// Ensure that a connection which is de-configured is dropped.
+		_, err := pConn.Write(ctx, message.Basic(message.CommandMachineModel))
+		r.ErrorIs(err, io.EOF)
 	})
 }

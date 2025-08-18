@@ -35,7 +35,6 @@ import (
 )
 
 func TestConn(t *testing.T) {
-	slog.SetLogLoggerLevel(slog.LevelDebug)
 	r := require.New(t)
 
 	ctx := stopper.WithContext(context.Background())
