@@ -70,7 +70,8 @@ func (c *Conn) Close() {
 	c.closeLocked()
 }
 
-// Write a message to the MDC host and receive a response.
+// Write a message to the MDC host and receive a response. The response message
+// will be stripped of prompt and control characters.
 func (c *Conn) Write(ctx context.Context, msg message.Message) (message.Message, error) {
 	ctx, cancel := context.WithTimeout(ctx, writeTimeout)
 	defer cancel()
@@ -121,6 +122,7 @@ func (c *Conn) dialLocked(ctx context.Context) error {
 	c.mu.conn = conn
 	c.mu.keepAlive = keep
 	c.mu.respScanner = bufio.NewScanner(c.mu.conn)
+	c.mu.respScanner.Split(message.ScanPrompt)
 	go func() {
 		for {
 			select {
@@ -174,7 +176,10 @@ func (c *Conn) writeLocked(ctx context.Context, msg message.Message) (_ message.
 	}
 
 	if c.mu.respScanner.Scan() {
-		return message.Response(bytes.Clone(c.mu.respScanner.Bytes())), nil
+		data := c.mu.respScanner.Bytes()
+		if len(data) > 0 {
+			return message.Response(bytes.Clone(data)), nil
+		}
 	}
 
 	if err := c.mu.respScanner.Err(); err != nil {

@@ -24,10 +24,12 @@ package proxy
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"log/slog"
 	"net/netip"
+	"syscall"
 	"testing"
 	"time"
 
@@ -104,15 +106,15 @@ func TestProxy(t *testing.T) {
 
 	t.Run("basic", func(t *testing.T) {
 		r := require.New(t)
-		check(r, ">>MODEL, MDCMUX", message.Basic(message.CommandMachineModel))
-		check(r, ">>?, MDCMUX DENY POLICY", message.Basic(message.Int64(999)))
+		check(r, "MODEL, MDCMUX", message.Basic(message.CommandMachineModel))
+		check(r, "?, MDCMUX DENY POLICY", message.Basic(message.Int64(999)))
 	})
 
 	t.Run("writes", func(t *testing.T) {
 		r := require.New(t)
-		check(r, ">>!", message.Write(message.Int64(2), message.NewNumber(3, 141592)))
-		check(r, ">>?, MDCMUX DENY POLICY", message.Write(message.Int64(200), message.NewNumber(3, 141592)))
-		check(r, ">>MACRO, 3.141592", message.Query(message.Int64(2)))
+		check(r, "!", message.Write(message.Int64(2), message.NewNumber(3, 141592)))
+		check(r, "?, MDCMUX DENY POLICY", message.Write(message.Int64(200), message.NewNumber(3, 141592)))
+		check(r, "MACRO, 3.141592", message.Query(message.Int64(2)))
 	})
 
 	t.Run("no_policy_match", func(t *testing.T) {
@@ -133,7 +135,17 @@ func TestProxy(t *testing.T) {
 		<-reconfigured
 
 		// Ensure that a connection which is de-configured is dropped.
-		_, err := pConn.Write(ctx, message.Basic(message.CommandMachineModel))
-		r.ErrorIs(err, io.EOF)
+		msg, err := pConn.Write(ctx, message.Basic(message.CommandMachineModel))
+		r.NoError(err)
+		r.Equal(string(message.Prompt), msg.String())
+		_, err = pConn.Write(ctx, message.Basic(message.CommandMachineModel))
+		if errors.Is(err, io.EOF) {
+		} else if errors.Is(err, syscall.Errno(0)) {
+			var errno syscall.Errno
+			r.ErrorAs(err, &errno)
+			r.Equal(syscall.ECONNRESET, errno)
+		} else {
+			r.Fail("connection not dropped")
+		}
 	})
 }

@@ -24,7 +24,7 @@ package dummy
 
 import (
 	"bufio"
-	"fmt"
+	"bytes"
 	"io"
 	"log/slog"
 	"net"
@@ -36,19 +36,19 @@ import (
 
 // Canned messages to send for basic commands.
 var Canned = map[message.Number]string{
-	message.CommandMachineSN:         ">>SERIAL NUMBER, 1024",
-	message.CommandControlVersion:    ">>SOFTWARE VERSION, 100.24.000.1024",
-	message.CommandMachineModel:      ">>MODEL, MDCMUX",
-	message.CommandMode:              ">>MODE, STARTUP_MODE",
-	message.CommandToolChanges:       ">>TOOL CHANGES, 1024",
-	message.CommandToolNumber:        ">>USING TOOL, 16",
-	message.CommandPowerOnTime:       ">>P.O. TIME, 00012:34:56",
-	message.CommandMotionTime:        ">>C.S. TIME, 00012:34:56",
-	message.CommandLastCycleTime:     ">>LAST CYCLE, 00012:34:56",
-	message.CommandPreviousCycleTime: ">>PREV CYCLE, 00012:34:56",
-	message.CommandPartsCounter1:     ">>M30 #1, 22",
-	message.CommandPartsCounter2:     ">>M30 #2, 33",
-	message.CommandThreeInOne:        ">>PROGRAM, MDI, ALARM ON, PARTS, 3205",
+	message.CommandMachineSN:         "SERIAL NUMBER, 1024",
+	message.CommandControlVersion:    "SOFTWARE VERSION, 100.24.000.1024",
+	message.CommandMachineModel:      "MODEL, MDCMUX",
+	message.CommandMode:              "MODE, STARTUP_MODE",
+	message.CommandToolChanges:       "TOOL CHANGES, 1024",
+	message.CommandToolNumber:        "USING TOOL, 16",
+	message.CommandPowerOnTime:       "P.O. TIME, 00012:34:56",
+	message.CommandMotionTime:        "C.S. TIME, 00012:34:56",
+	message.CommandLastCycleTime:     "LAST CYCLE, 00012:34:56",
+	message.CommandPreviousCycleTime: "PREV CYCLE, 00012:34:56",
+	message.CommandPartsCounter1:     "M30 #1, 22",
+	message.CommandPartsCounter2:     "M30 #2, 33",
+	message.CommandThreeInOne:        "PROGRAM, MDI, ALARM ON, PARTS, 3205",
 }
 
 // Server implements a dummy MDC host for testing purposes.
@@ -105,7 +105,6 @@ func (s *Server) Addr() net.Addr {
 
 func (s *Server) handle(_ *stopper.Context, msg message.Message, out *bufio.Writer) error {
 	cmd, _ := msg.Command()
-	var data string
 
 	if msg.IsWrite() {
 		num, _ := msg.Variable()
@@ -115,52 +114,58 @@ func (s *Server) handle(_ *stopper.Context, msg message.Message, out *bufio.Writ
 		s.mu.data[num] = val
 		s.mu.Unlock()
 
-		data = ">>!"
-	} else if found, ok := Canned[cmd]; ok {
-		data = found
-	} else if cmd == message.CommandMacroVariable {
+		return message.WriteResponse(out, "!")
+	}
+
+	if found, ok := Canned[cmd]; ok {
+		return message.WriteResponse(out, "%s", found)
+	}
+
+	if cmd == message.CommandMacroVariable {
 		num, _ := msg.Variable()
 
 		if num.Whole() < 0 || num.Frac() != 0 {
-			data = ">>?, BAD VARIABLE NUMBER"
-		} else {
-			s.mu.Lock()
-			val := s.mu.data[num]
-			s.mu.Unlock()
-
-			data = fmt.Sprintf(">>MACRO, %f", val)
+			return message.WriteResponse(out, "?, BAD VARIABLE NUMBER")
 		}
 
-	} else {
-		data = fmt.Sprintf(">>?, ?Q%d", cmd)
+		// Macro variable 0 is always NaN
+		if num.Whole() == 0 {
+			return message.WriteResponse(out, "MACRO, NaN")
+		}
+
+		s.mu.Lock()
+		val := s.mu.data[num]
+		s.mu.Unlock()
+		return message.WriteResponse(out, "MACRO, %f", val)
 	}
 
-	if _, err := out.WriteString(data); err != nil {
-		return err
-	}
-	_, err := out.WriteString("\r\n")
-	return err
+	return message.WriteResponse(out, "?, ?Q%d", cmd)
 }
 
-func (s *Server) run(ctx *stopper.Context, conn net.Conn) error {
-	scanner := bufio.NewScanner(conn)
-	out := bufio.NewWriter(conn)
+func (s *Server) run(ctx *stopper.Context, c net.Conn) error {
+	scanner := bufio.NewScanner(c)
+	out := bufio.NewWriter(c)
+
+	if err := message.WritePrompt(out); err != nil {
+		return err
+	}
 	for scanner.Scan() {
-		buf := scanner.Bytes()
+		buf := bytes.TrimSpace(scanner.Bytes())
+
+		// Empty lines are ignored.
+		if len(buf) == 0 {
+			continue
+		}
+
 		msg, err := message.Parse(buf)
 		if err != nil {
 			slog.DebugContext(ctx, "inbound parse error",
 				slog.String("message", string(buf)),
 				slog.Any("error", err))
-			if _, err := out.WriteString("? BAD MESSAGE\r\n"); err != nil {
+			if err := message.WriteResponse(out, "?, BAD MESSAGE"); err != nil {
 				return err
 			}
-			continue
-		}
-		if err := s.handle(ctx, msg, out); err != nil {
-			return err
-		}
-		if err := out.Flush(); err != nil {
+		} else if err := s.handle(ctx, msg, out); err != nil {
 			return err
 		}
 	}

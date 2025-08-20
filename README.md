@@ -37,7 +37,13 @@ Binaries are available from the [GitHub Releases](https://github.com/bobvawter/m
 Installation from source:
 
 ```sh
-go install vawter.tech/mdcmux
+go install vawter.tech/mdcmux@latest
+```
+
+Preflight build:
+
+```shell
+go tool github.com/goreleaser/goreleaser/v2 build --clean --snapshot
 ```
 
 ## Proxy use
@@ -102,18 +108,18 @@ mdcmux dummy --bind 127.0.0.1:13013 &
 
 # You can use PuTTY, etc.
 nc 127.0.0.1 13013
-?Q102
->>MODEL, MDCMUX
-?Q101
->>SOFTWARE VERSION, 100.24.000.1024
-?Q100
->>SERIAL NUMBER, 1024
-?Q600 10900
->>MACRO, 0.0
-?E10900 123.456
->>!
-?Q600 10900
->>MACRO, 123.456
+>?Q102
+>MODEL, MDCMUX
+>?Q101
+>SOFTWARE VERSION, 100.24.000.1024
+>?Q100
+>SERIAL NUMBER, 1024
+>?Q600 10900
+>MACRO, 0.0
+>?E10900 123.456
+>!
+>?Q600 10900
+>MACRO, 123.456
 ```
 
 ## Disclaimer

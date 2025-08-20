@@ -42,7 +42,7 @@ func TestDecoration(t *testing.T) {
 		{M: Basic(CommandMachineSN), Command: true, Safe: true},
 		{M: Basic(Int64(999)), Command: true}, // Not safe because it's not documented.
 
-		{M: Response([]byte(">>!"))},
+		{M: Response([]byte(">!"))},
 
 		{M: Query(Int64(999)), Command: true, Safe: true, Variable: true},
 		{M: Query(NewNumber(999, 999)), Command: true, Variable: true}, // Not safe because of fractional number.
@@ -105,11 +105,11 @@ func TestParseMessage(t *testing.T) {
 		Err string
 		C   string // Canonical representation
 	}{
-		{S: "", Err: "empty message"},
+		{S: "", Err: "undersized message"},
 		{S: "Q100", Err: "no leading '?'"},
 		{S: "?U1", Err: "invalid character"},
 
-		{S: "?Q", Err: "expecting"},
+		{S: "?Q", Err: "undersized message"},
 		{S: "?Q100", M: Basic(Int64(100))},
 		{S: "?Q100  ", M: Basic(Int64(100)), C: "?Q100"},
 		{S: "?Q100.1", Err: "expecting"},
@@ -120,7 +120,7 @@ func TestParseMessage(t *testing.T) {
 		{S: "?Q600 1234.", M: Query(Int64(1234)), C: "?Q600 1234.0"},
 		{S: "?Q600 1234.567", M: Query(NewNumber(1234, 567))},
 
-		{S: "?E", Err: "expecting a variable number"},
+		{S: "?E", Err: "undersized message"},
 		{S: "?E1", Err: "expecting a variable number"},
 		{S: "?E1X", Err: "expecting a variable number"},
 		{S: "?E1 Y", Err: "expecting a variable number"},
