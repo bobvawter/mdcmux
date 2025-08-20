@@ -25,7 +25,6 @@ package proxy
 import (
 	"bufio"
 	"errors"
-	"fmt"
 	"io"
 	"log/slog"
 	"net"
@@ -218,11 +217,9 @@ func (p *Proxy) proxy(ctx *stopper.Context,
 	out := bufio.NewWriter(tcpConn)
 	defer func() { _ = out.Flush() }()
 
-	writeError := func(msg string) error {
-		if _, err := fmt.Fprintf(out, ">>?, %s\n", msg); err != nil {
-			return err
-		}
-		return out.Flush()
+	// Write the initial greeting prompt.
+	if err := message.WritePrompt(out); err != nil {
+		return err
 	}
 
 	// Updated at the bottom of the loop.
@@ -300,7 +297,7 @@ func (p *Proxy) proxy(ctx *stopper.Context,
 				auditData = append(auditData, slog.Bool("deny", true))
 				logger.LogAttrs(ctx, slog.LevelInfo, "deny", auditData...)
 			}
-			if err := writeError("MDCMUX DENY POLICY"); err != nil {
+			if err := message.WriteResponse(out, "?, MDCMUX DENY POLICY"); err != nil {
 				return err
 			}
 			continue
@@ -310,17 +307,22 @@ func (p *Proxy) proxy(ctx *stopper.Context,
 		writeStart := time.Now()
 		resp, err := mdc.Write(ctx, msg)
 		if err != nil {
-			_ = writeError("MDCMUX PROXY ERROR")
+			// Internal error, drop the connection.
+			_ = message.WriteResponse(out, "?, MDCMUX PROXY ERROR")
 			return err
 		}
 		flushStart := time.Now()
+		if _, err := out.WriteRune(message.Prompt); err != nil {
+			return err
+		}
 		if _, err := resp.WriteTo(out); err != nil {
 			return err
 		}
-		if _, err := out.WriteString("\n"); err != nil {
+		if _, err := out.WriteString("\r\n"); err != nil {
 			return err
 		}
-		if err := out.Flush(); err != nil {
+		// Write next-command prompt. This will also flush the buffer.
+		if err := message.WritePrompt(out); err != nil {
 			return err
 		}
 		flushEnd := time.Now()
