@@ -23,6 +23,7 @@
 package message
 
 import (
+	"bytes"
 	"fmt"
 	"testing"
 
@@ -30,24 +31,22 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestDecoration(t *testing.T) {
+func TestCommandDecoration(t *testing.T) {
 	tcs := []struct {
-		M        Message
+		M        Command
 		Command  bool
 		Safe     bool
 		Variable bool
 		Value    bool
 		Write    bool
 	}{
-		{M: Basic(CommandMachineSN), Command: true, Safe: true},
-		{M: Basic(Int64(999)), Command: true}, // Not safe because it's not documented.
+		{M: CommandMachineSN, Command: true, Safe: true},
+		{M: BasicCommand(Int64(999)), Command: true}, // Not safe because it's not documented.
 
-		{M: Response([]byte(">!"))},
+		{M: QueryCommand(Int64(999)), Command: true, Safe: true, Variable: true},
+		{M: QueryCommand(NewNumber(999, 999)), Command: true, Variable: true}, // Not safe because of fractional number.
 
-		{M: Query(Int64(999)), Command: true, Safe: true, Variable: true},
-		{M: Query(NewNumber(999, 999)), Command: true, Variable: true}, // Not safe because of fractional number.
-
-		{M: Write(Int64(99), Int64(101)), Variable: true, Value: true, Write: true},
+		{M: WriteCommand(Int64(99), Int64(101)), Variable: true, Value: true, Write: true},
 	}
 
 	for idx, tc := range tcs {
@@ -98,6 +97,19 @@ func TestFormatNumber(t *testing.T) {
 	}
 }
 
+// TestBasicCanonical ensures that parsing basic, no-arg commands returns the
+// canonical instances.
+func TestBasicCanonical(t *testing.T) {
+	r := require.New(t)
+
+	r.Same(CommandMachineSN, BasicCommand(QMachineSN))
+	r.True(CommandMachineSN.IsSafe())
+
+	b := BasicCommand(Int64(999))
+	r.Same(b, BasicCommand(Int(999)))
+	r.False(b.IsSafe())
+}
+
 func TestParseMessage(t *testing.T) {
 	tcs := []struct {
 		S   string
@@ -110,25 +122,25 @@ func TestParseMessage(t *testing.T) {
 		{S: "?U1", Err: "invalid character"},
 
 		{S: "?Q", Err: "undersized message"},
-		{S: "?Q100", M: Basic(Int64(100))},
-		{S: "?Q100  ", M: Basic(Int64(100)), C: "?Q100"},
+		{S: "?Q100", M: BasicCommand(Int64(100))},
+		{S: "?Q100  ", M: BasicCommand(Int64(100)), C: "?Q100"},
 		{S: "?Q100.1", Err: "expecting"},
 		{S: "?Q600 ", Err: "must specify a variable"},
 		{S: "?Q600 XYZ", Err: "expecting"},
-		{S: "?Q600 1234", M: Query(Int64(1234)), C: "?Q600 1234.0"},
-		{S: "?Q600 1234 ", M: Query(Int64(1234)), C: "?Q600 1234.0"},
-		{S: "?Q600 1234.", M: Query(Int64(1234)), C: "?Q600 1234.0"},
-		{S: "?Q600 1234.567", M: Query(NewNumber(1234, 567))},
+		{S: "?Q600 1234", M: QueryCommand(Int64(1234)), C: "?Q600 1234.0"},
+		{S: "?Q600 1234 ", M: QueryCommand(Int64(1234)), C: "?Q600 1234.0"},
+		{S: "?Q600 1234.", M: QueryCommand(Int64(1234)), C: "?Q600 1234.0"},
+		{S: "?Q600 1234.567", M: QueryCommand(NewNumber(1234, 567))},
 
 		{S: "?E", Err: "undersized message"},
 		{S: "?E1", Err: "expecting a variable number"},
 		{S: "?E1X", Err: "expecting a variable number"},
 		{S: "?E1 Y", Err: "expecting a variable number"},
 
-		{S: "?E12 567", M: Write(Int64(12), Int64(567)), C: "?E12 567.0"},
-		{S: "?E12 -567", M: Write(Int64(12), Int64(-567)), C: "?E12 -567.0"},
-		{S: "?E12 +567", M: Write(Int64(12), Int64(567)), C: "?E12 567.0"},
-		{S: "?E12 567.", M: Write(Int64(12), Int64(567)), C: "?E12 567.0"},
+		{S: "?E12 567", M: WriteCommand(Int64(12), Int64(567)), C: "?E12 567.0"},
+		{S: "?E12 -567", M: WriteCommand(Int64(12), Int64(-567)), C: "?E12 -567.0"},
+		{S: "?E12 +567", M: WriteCommand(Int64(12), Int64(567)), C: "?E12 567.0"},
+		{S: "?E12 567.", M: WriteCommand(Int64(12), Int64(567)), C: "?E12 567.0"},
 		{S: "?E12.34 567.8", Err: "expecting a variable number"},
 	}
 
@@ -136,7 +148,7 @@ func TestParseMessage(t *testing.T) {
 		t.Run(tc.S, func(t *testing.T) {
 			r := require.New(t)
 
-			parsed, err := Parse([]byte(tc.S))
+			parsed, err := ParseCommand([]byte(tc.S))
 			if tc.Err != "" {
 				r.ErrorContains(err, tc.Err)
 				return
@@ -145,7 +157,7 @@ func TestParseMessage(t *testing.T) {
 			r.Equal(tc.M, parsed)
 
 			s := fmt.Sprint(parsed)
-			reparsed, err := Parse([]byte(s))
+			reparsed, err := ParseCommand([]byte(s))
 			r.NoError(err, s)
 			r.Equal(parsed, reparsed)
 
@@ -159,6 +171,56 @@ func TestParseMessage(t *testing.T) {
 	}
 }
 
+func TestParseResponse(t *testing.T) {
+	tcs := []struct {
+		C   Command  // Base message used to parse the response.
+		R   Response // Expected response in canonicalized format.
+		S   string   // Arbitrary payload for testing error responses.
+		Err string   // Expected error value.
+	}{
+		{C: QueryCommand(Int64(1234)), R: QueryResponse(NewNumber(123, 456))},
+		{C: QueryCommand(Int64(1234)), R: QueryResponse(Int64(1234))},
+		{C: QueryCommand(Int64(1234)), R: QueryResponse(NaN)},
+		{
+			C: QueryCommand(Int64(1234)),
+			S: "",
+			R: OpaqueResponse(nil, false),
+		},
+		{
+			C: QueryCommand(Int64(1234)),
+			S: "MACRO, ?, Q600-1",
+			R: OpaqueResponse([]byte("MACRO, ?, Q600-1"), false),
+		},
+
+		{C: WriteCommand(NaN, NaN), R: OpaqueResponse([]byte{'!'}, true)},
+		{C: WriteCommand(NaN, NaN), R: OpaqueResponse([]byte{'?'}, false)},
+	}
+
+	for idx, tc := range tcs {
+		t.Run(fmt.Sprintf("%d", idx), func(t *testing.T) {
+			r := require.New(t)
+
+			var buf []byte
+			if tc.S != "" {
+				buf = []byte(tc.S)
+			} else {
+				var w bytes.Buffer
+				_, err := tc.R.WriteTo(&w)
+				r.NoError(err)
+				buf = w.Bytes()
+			}
+
+			resp, err := tc.C.ParseResponse(buf)
+			if tc.Err != "" {
+				r.ErrorContains(err, tc.Err)
+			} else {
+				r.NoError(err)
+				r.Equal(tc.R, resp)
+			}
+		})
+	}
+}
+
 func TestParseNumber(t *testing.T) {
 	tcs := []struct {
 		S   string
@@ -166,6 +228,7 @@ func TestParseNumber(t *testing.T) {
 		Err string
 	}{
 		{S: "", Err: "empty number"},
+		{S: "NaN", N: NaN},
 
 		{S: "0", N: Int64(0)},
 		{S: " 0 ", N: Int64(0)},

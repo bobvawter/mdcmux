@@ -29,7 +29,7 @@ import (
 	"slices"
 	"time"
 
-	"vawter.tech/mdcmux/message"
+	"vawter.tech/mdcmux/pkg/message"
 )
 
 const defaultMaxIdle = 5 * time.Minute
@@ -117,16 +117,16 @@ type Policy struct {
 	Audit bool `json:"audit"`
 }
 
-// Allow returns true if the message is permitted by the policy.
-func (p *Policy) Allow(msg message.Message) bool {
-	if msg.IsSafe() {
+// Allow returns true if the command is permitted by the policy.
+func (p *Policy) Allow(cmd message.Command) bool {
+	if cmd.IsSafe() {
 		return true
 	}
-	if msg.IsWrite() {
-		v, _ := msg.Variable()
+	if cmd.IsWrite() {
+		v, _ := cmd.Variable()
 		return p.AllowWrite(int(v.Whole()))
 	}
-	if _, ok := msg.Command(); ok && p.AllowUndocumentedQ {
+	if _, ok := cmd.Command(); ok && p.AllowUndocumentedQ {
 		return true
 	}
 	return false

@@ -32,8 +32,8 @@ import (
 	"sync"
 	"time"
 
-	"vawter.tech/mdcmux/conn"
-	"vawter.tech/mdcmux/message"
+	"vawter.tech/mdcmux/pkg/conn"
+	"vawter.tech/mdcmux/pkg/message"
 	"vawter.tech/notify"
 	"vawter.tech/notify/notifyx"
 	"vawter.tech/stopper"
@@ -102,7 +102,7 @@ func New(ctx *stopper.Context, cfg *notify.Var[*Config]) (*Proxy, error) {
 				// Find connection from previous generation.
 				c := p.mu.connByHostname[hostname]
 				if c == nil {
-					c = conn.NewConn(hostname)
+					c = conn.New(hostname)
 				}
 				nextConns[hostname] = c
 
@@ -264,7 +264,7 @@ func (p *Proxy) proxy(ctx *stopper.Context,
 		}
 
 		// We now have a message to parse.
-		msg, err := message.Parse(in.Bytes())
+		msg, err := message.ParseCommand(in.Bytes())
 		if err != nil {
 			logger.DebugContext(ctx, "could not parse message",
 				"error", err)
@@ -305,7 +305,7 @@ func (p *Proxy) proxy(ctx *stopper.Context,
 
 		// Proxy the message across.
 		writeStart := time.Now()
-		resp, err := mdc.Write(ctx, msg)
+		resp, err := mdc.RoundTrip(ctx, msg)
 		if err != nil {
 			// Internal error, drop the connection.
 			_ = message.WriteResponse(out, "?, MDCMUX PROXY ERROR")

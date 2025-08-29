@@ -30,12 +30,12 @@ import (
 	"net"
 	"sync"
 
-	"vawter.tech/mdcmux/message"
+	"vawter.tech/mdcmux/pkg/message"
 	"vawter.tech/stopper"
 )
 
 // Canned messages to send for basic commands.
-var Canned = map[message.Number]string{
+var Canned = map[message.Command]string{
 	message.CommandMachineSN:         "SERIAL NUMBER, 1024",
 	message.CommandControlVersion:    "SOFTWARE VERSION, 100.24.000.1024",
 	message.CommandMachineModel:      "MODEL, MDCMUX",
@@ -103,8 +103,7 @@ func (s *Server) Addr() net.Addr {
 	return s.listener.Addr()
 }
 
-func (s *Server) handle(_ *stopper.Context, msg message.Message, out *bufio.Writer) error {
-	cmd, _ := msg.Command()
+func (s *Server) handle(_ *stopper.Context, msg message.Command, out *bufio.Writer) error {
 
 	if msg.IsWrite() {
 		num, _ := msg.Variable()
@@ -117,11 +116,12 @@ func (s *Server) handle(_ *stopper.Context, msg message.Message, out *bufio.Writ
 		return message.WriteResponse(out, "!")
 	}
 
-	if found, ok := Canned[cmd]; ok {
+	if found, ok := Canned[msg]; ok {
 		return message.WriteResponse(out, "%s", found)
 	}
 
-	if cmd == message.CommandMacroVariable {
+	cmd, _ := msg.Command()
+	if cmd == message.QMacroVariable {
 		num, _ := msg.Variable()
 
 		if num.Whole() < 0 || num.Frac() != 0 {
@@ -157,7 +157,7 @@ func (s *Server) run(ctx *stopper.Context, c net.Conn) error {
 			continue
 		}
 
-		msg, err := message.Parse(buf)
+		cmd, err := message.ParseCommand(buf)
 		if err != nil {
 			slog.DebugContext(ctx, "inbound parse error",
 				slog.String("message", string(buf)),
@@ -165,7 +165,7 @@ func (s *Server) run(ctx *stopper.Context, c net.Conn) error {
 			if err := message.WriteResponse(out, "?, BAD MESSAGE"); err != nil {
 				return err
 			}
-		} else if err := s.handle(ctx, msg, out); err != nil {
+		} else if err := s.handle(ctx, cmd, out); err != nil {
 			return err
 		}
 	}

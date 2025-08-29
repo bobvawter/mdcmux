@@ -20,31 +20,44 @@
 //
 // SPDX-License-Identifier: MIT
 
-package dummy
+package message
 
 import (
-	"github.com/spf13/cobra"
-	"vawter.tech/mdcmux/internal/dummy"
-	"vawter.tech/stopper"
+	"bytes"
+	"io"
+	"log/slog"
 )
 
-// Command is the entrypoint for the dummy MDC server.
-func Command() *cobra.Command {
-	var bind string
-	cmd := &cobra.Command{
-		Use:   "dummy",
-		Args:  cobra.NoArgs,
-		Short: "start a dummy MDC server for demo purposes",
-		RunE: func(cmd *cobra.Command, args []string) error {
-			ctx := stopper.From(cmd.Context())
-			_, err := dummy.New(ctx, bind)
-			if err != nil {
-				return err
-			}
-			return ctx.Wait()
-		},
-	}
-	cmd.Flags().StringVarP(&bind, "bind", "b", "127.0.0.1:13013", "bind address")
+type opaqueResponse struct {
+	responseBase
 
-	return cmd
+	buf     []byte
+	success bool
+}
+
+var _ Response = (*opaqueResponse)(nil)
+
+// An OpaqueResponse contains arbitrary MDC wire data.
+func OpaqueResponse(data []byte, success bool) Response {
+	ret := opaqueResponse{buf: bytes.Clone(data), success: success}
+	return &ret
+}
+
+func (r *opaqueResponse) Buffer() ([]byte, bool) {
+	return r.buf, true
+}
+
+func (r *opaqueResponse) IsSuccess() bool { return r.success }
+
+func (r *opaqueResponse) LogValue() slog.Value {
+	return slog.GroupValue(
+		slog.String("payload", string(r.buf)),
+	)
+}
+
+func (r *opaqueResponse) String() string { return stringify(r) }
+
+func (r *opaqueResponse) WriteTo(out io.Writer) (int64, error) {
+	count, err := out.Write(r.buf)
+	return int64(count), err
 }
