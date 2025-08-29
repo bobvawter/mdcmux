@@ -34,7 +34,7 @@ import (
 func TestDemoConfig(t *testing.T) {
 	r := require.New(t)
 
-	f, err := os.Open("../mdcmux.json")
+	f, err := os.Open("../../mdcmux.json")
 	r.NoError(err)
 	defer func() { _ = f.Close() }()
 

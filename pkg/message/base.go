@@ -20,31 +20,22 @@
 //
 // SPDX-License-Identifier: MIT
 
-package dummy
+package message
 
-import (
-	"github.com/spf13/cobra"
-	"vawter.tech/mdcmux/internal/dummy"
-	"vawter.tech/stopper"
-)
+type commandBase struct{}
 
-// Command is the entrypoint for the dummy MDC server.
-func Command() *cobra.Command {
-	var bind string
-	cmd := &cobra.Command{
-		Use:   "dummy",
-		Args:  cobra.NoArgs,
-		Short: "start a dummy MDC server for demo purposes",
-		RunE: func(cmd *cobra.Command, args []string) error {
-			ctx := stopper.From(cmd.Context())
-			_, err := dummy.New(ctx, bind)
-			if err != nil {
-				return err
-			}
-			return ctx.Wait()
-		},
-	}
-	cmd.Flags().StringVarP(&bind, "bind", "b", "127.0.0.1:13013", "bind address")
-
-	return cmd
+func (*commandBase) Command() (Number, bool) { return Number{}, false }
+func (*commandBase) IsSafe() bool            { return false }
+func (*commandBase) IsWrite() bool           { return false }
+func (*commandBase) ParseResponse(buf []byte) (Response, error) {
+	return OpaqueResponse(buf, false), nil
 }
+func (*commandBase) Value() (Number, bool)    { return Number{}, false }
+func (*commandBase) Variable() (Number, bool) { return Number{}, false }
+func (*commandBase) isMessage()               {}
+
+type responseBase struct{}
+
+func (*responseBase) Buffer() ([]byte, bool) { return nil, false }
+func (*responseBase) Value() (Number, bool)  { return Number{}, false }
+func (*responseBase) isMessage()             {}

@@ -20,19 +20,20 @@
 //
 // SPDX-License-Identifier: MIT
 
+// Package conn provides message transport for a Machine Data Collection host.
 package conn
 
 import (
 	"bufio"
-	"bytes"
 	"context"
 	"io"
 	"log/slog"
 	"net"
+	"runtime"
 	"sync"
 	"time"
 
-	"vawter.tech/mdcmux/message"
+	"vawter.tech/mdcmux/pkg/message"
 )
 
 const writeTimeout = 30 * time.Second
@@ -41,6 +42,7 @@ const writeTimeout = 30 * time.Second
 type Conn struct {
 	hostname string
 	idleTime time.Duration
+	logger   *slog.Logger
 
 	mu struct {
 		sync.Mutex
@@ -50,12 +52,15 @@ type Conn struct {
 	}
 }
 
-// NewConn constructs a connection to an MDC host.
-func NewConn(hostname string) *Conn {
-	return &Conn{
+// New constructs a connection to an MDC host.
+func New(hostname string) *Conn {
+	ret := &Conn{
 		hostname: hostname,
 		idleTime: writeTimeout,
+		logger:   slog.With("hostname", hostname),
 	}
+	runtime.SetFinalizer(ret, (*Conn).Close)
+	return ret
 }
 
 // Addr returns the target MDC hostname.
@@ -70,9 +75,13 @@ func (c *Conn) Close() {
 	c.closeLocked()
 }
 
-// Write a message to the MDC host and receive a response. The response message
-// will be stripped of prompt and control characters.
-func (c *Conn) Write(ctx context.Context, msg message.Message) (message.Message, error) {
+// RoundTrip writes a message to the MDC host and receives a response. The
+// response message will be interpreted based on the type of message sent.
+func (c *Conn) RoundTrip(ctx context.Context, cmd message.Command) (message.Response, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+
 	ctx, cancel := context.WithTimeout(ctx, writeTimeout)
 	defer cancel()
 
@@ -84,17 +93,14 @@ func (c *Conn) Write(ctx context.Context, msg message.Message) (message.Message,
 			return nil, err
 		}
 
-		resp, err := c.writeLocked(ctx, message.Basic(message.CommandMachineSN))
+		resp, err := c.writeLocked(ctx, message.CommandMachineSN)
 		if err != nil {
 			return nil, err
 		}
-		slog.InfoContext(ctx,
-			"connected to MDC backend",
-			slog.String("backend", c.hostname),
-			slog.Any("sn", resp))
+		c.logger.LogAttrs(ctx, slog.LevelInfo, "connected", slog.Any("sn", resp))
 	}
 
-	return c.writeLocked(ctx, msg)
+	return c.writeLocked(ctx, cmd)
 }
 
 func (c *Conn) closeLocked() {
@@ -130,7 +136,7 @@ func (c *Conn) dialLocked(ctx context.Context) error {
 				c.mu.Lock()
 				if c.mu.keepAlive == keep {
 					c.closeLocked()
-					slog.DebugContext(ctx, "closed idle connection", slog.String("hostname", c.hostname))
+					c.logger.LogAttrs(ctx, slog.LevelDebug, "disconnected")
 				}
 				c.mu.Unlock()
 				return
@@ -151,7 +157,7 @@ func (c *Conn) peek() net.Conn {
 	return c.mu.conn
 }
 
-func (c *Conn) writeLocked(ctx context.Context, msg message.Message) (_ message.Message, err error) {
+func (c *Conn) writeLocked(ctx context.Context, cmd message.Command) (_ message.Response, err error) {
 	c.mu.keepAlive <- struct{}{}
 
 	defer func() {
@@ -166,19 +172,21 @@ func (c *Conn) writeLocked(ctx context.Context, msg message.Message) (_ message.
 		return nil, err
 	}
 
-	slog.DebugContext(ctx, "sending command",
-		slog.String("hostname", c.hostname),
-		slog.Any("command", msg),
-	)
+	c.logger.LogAttrs(ctx, slog.LevelDebug, "sending command", slog.Any("command", cmd))
 
-	if _, err := msg.WriteTo(c.mu.conn); err != nil {
+	if _, err := cmd.WriteTo(c.mu.conn); err != nil {
 		return nil, err
 	}
 
 	if c.mu.respScanner.Scan() {
 		data := c.mu.respScanner.Bytes()
 		if len(data) > 0 {
-			return message.Response(bytes.Clone(data)), nil
+			resp, err := cmd.ParseResponse(data)
+			if err != nil {
+				return nil, err
+			}
+			c.logger.LogAttrs(ctx, slog.LevelDebug, "received response", slog.Any("response", resp))
+			return resp, nil
 		}
 	}
 

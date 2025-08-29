@@ -31,7 +31,7 @@ import (
 	"time"
 
 	"github.com/spf13/cobra"
-	"vawter.tech/mdcmux/proxy"
+	"vawter.tech/mdcmux/internal/proxy"
 	"vawter.tech/notify"
 	"vawter.tech/stopper"
 )

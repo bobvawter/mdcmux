@@ -28,13 +28,15 @@ import (
 	"testing"
 	"time"
 
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	"vawter.tech/mdcmux/dummy"
-	"vawter.tech/mdcmux/message"
+	"vawter.tech/mdcmux/internal/dummy"
+	"vawter.tech/mdcmux/pkg/message"
 	"vawter.tech/stopper"
 )
 
 func TestConn(t *testing.T) {
+	a := assert.New(t)
 	r := require.New(t)
 
 	ctx := stopper.WithContext(context.Background())
@@ -55,27 +57,46 @@ func TestConn(t *testing.T) {
 	svr, err := dummy.New(ctx, "127.0.0.1:0")
 	r.NoError(err)
 
-	c := NewConn(svr.Addr().String())
+	c := New(svr.Addr().String())
 	r.Nil(c.peek()) // Don't dial until later.
 
-	for n := range dummy.Canned {
-		resp, err := c.Write(ctx, message.Basic(n))
+	for cmd := range dummy.Canned {
+		resp, err := c.RoundTrip(ctx, cmd)
 		r.NoError(err)
 		slog.InfoContext(ctx, "OK", slog.Any("resp", resp))
 	}
-	resp, err := c.Write(ctx, message.Basic(message.Int64(99)))
+	resp, err := c.RoundTrip(ctx, message.BasicCommand(message.Int64(99)))
 	r.NoError(err)
 	slog.InfoContext(ctx, "OK", slog.Any("resp", resp))
+	r.False(resp.IsSuccess())
+	if buf, ok := resp.Buffer(); a.True(ok) {
+		a.Equal([]byte("?, ?Q99"), buf)
+	}
 
-	resp, err = c.Write(ctx, message.Query(message.Int64(10900)))
+	resp, err = c.RoundTrip(ctx, message.QueryCommand(message.Int64(10900)))
 	r.NoError(err)
 	slog.InfoContext(ctx, "OK", slog.Any("resp", resp))
+	r.True(resp.IsSuccess())
+	if value, ok := resp.Value(); a.True(ok) {
+		a.Zero(value)
+	}
 
-	resp, err = c.Write(ctx, message.Write(message.Int64(10900), message.Int64(4)))
+	resp, err = c.RoundTrip(ctx, message.WriteCommand(message.Int64(10900), message.Int64(4)))
 	r.NoError(err)
 	slog.InfoContext(ctx, "OK", slog.Any("resp", resp))
+	r.True(resp.IsSuccess())
 
-	resp, err = c.Write(ctx, message.Query(message.Int64(10900)))
+	resp, err = c.RoundTrip(ctx, message.QueryCommand(message.Int64(10900)))
 	r.NoError(err)
 	slog.InfoContext(ctx, "OK", slog.Any("resp", resp))
+	if value, ok := resp.Value(); a.True(ok) {
+		a.Equal(message.Int64(4), value)
+	}
+
+	resp, err = c.RoundTrip(ctx, message.QueryCommand(message.Int64(0)))
+	r.NoError(err)
+	slog.InfoContext(ctx, "OK", slog.Any("resp", resp))
+	if value, ok := resp.Value(); a.True(ok) {
+		a.Equal(message.NaN, value)
+	}
 }
