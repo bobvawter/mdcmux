@@ -31,6 +31,7 @@ import (
 
 	"github.com/spf13/cobra"
 	"vawter.tech/mdcmux/cmd/dummy"
+	"vawter.tech/mdcmux/cmd/fetch"
 	"vawter.tech/mdcmux/cmd/legal"
 	"vawter.tech/mdcmux/cmd/mdcmux"
 	"vawter.tech/stopper"
@@ -49,9 +50,9 @@ func main() {
 			}
 			var h slog.Handler
 			if jsonLog {
-				h = slog.NewJSONHandler(os.Stdout, opts)
+				h = slog.NewJSONHandler(os.Stderr, opts)
 			} else {
-				h = slog.NewTextHandler(os.Stdout, opts)
+				h = slog.NewTextHandler(os.Stderr, opts)
 			}
 			slog.SetDefault(slog.New(h))
 			return nil
@@ -63,6 +64,7 @@ func main() {
 	root.PersistentFlags().BoolVar(&jsonLog, "json", false, "enable json log output")
 	root.PersistentFlags().BoolVarP(&verbose, "verbose", "v", false, "verbose output")
 	root.AddCommand(dummy.Command())
+	root.AddCommand(fetch.Command())
 	root.AddCommand(legal.Command())
 	root.AddCommand(mdcmux.Command())
 
