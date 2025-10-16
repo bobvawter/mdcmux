@@ -25,6 +25,8 @@ package message
 import (
 	"bytes"
 	"fmt"
+	"math"
+	"strconv"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -238,7 +240,11 @@ func TestParseNumber(t *testing.T) {
 
 		{S: "0.1", N: NewNumber(0, 1)},
 		{S: "1.1", N: NewNumber(1, 1)},
+		{S: "1.10", N: NewNumber(1, 10)},
+		{S: "1.12", N: NewNumber(1, 12)},
 		{S: "-1.1", N: NewNumber(-1, 1)},
+		{S: "-1.10", N: NewNumber(-1, 10)},
+		{S: "-1.12", N: NewNumber(-1, 12)},
 
 		{S: "-1.-1", Err: "invalid number"},
 	}
@@ -254,6 +260,14 @@ func TestParseNumber(t *testing.T) {
 			}
 			r.NoError(err)
 			r.Equal(tc.N, parsed)
+
+			f, err := strconv.ParseFloat(parsed.String(), 64)
+			r.NoError(err)
+			if parsed.IsNaN() {
+				r.True(math.IsNaN(f))
+			} else {
+				r.Equal(f, parsed.Float64())
+			}
 		})
 	}
 }

@@ -96,6 +96,20 @@ func ParseNumber(buf []byte) (Number, error) {
 	return NewNumber(whole, frac), nil
 }
 
+// Float64 returns the Number as a floating-point value.
+func (n Number) Float64() float64 {
+	if n.IsNaN() {
+		return math.NaN()
+	}
+	w := float64(n.whole)
+	if n.frac == 0 {
+		return w
+	}
+	f := math.Copysign(float64(n.frac), w)
+	d := math.Pow(10, -math.Floor(math.Log10(float64(n.Frac())))-1)
+	return math.FMA(f, d, w)
+}
+
 // Frac returns the fractional portion of the Number.
 func (n Number) Frac() int64 {
 	return n.frac
