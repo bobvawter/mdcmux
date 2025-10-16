@@ -20,6 +20,8 @@
 //
 // SPDX-License-Identifier: MIT
 
+// Package dummy contains a trivial implementation of an MDC host. It supports
+// various canned messages and access to macro variables.
 package dummy
 
 import (
@@ -29,6 +31,7 @@ import (
 	"log/slog"
 	"net"
 	"sync"
+	"time"
 
 	"vawter.tech/mdcmux/pkg/message"
 	"vawter.tech/stopper"
@@ -80,19 +83,48 @@ func New(ctx *stopper.Context, bind string) (*Server, error) {
 	}
 	s.mu.data = make(map[message.Number]message.Number)
 
+	openConns := make(map[net.Conn]struct{})
+	var openConnsMu sync.Mutex
+
+	// Unblock reads when the server gets shut down.
+	ctx.Go(func(ctx *stopper.Context) error {
+		<-ctx.Stopping()
+		now := time.UnixMilli(1)
+		openConnsMu.Lock()
+		for conn := range openConns {
+			_ = conn.SetReadDeadline(now)
+		}
+		openConnsMu.Unlock()
+		return nil
+	})
+
+	// This is the main accept loop for the server.
 	ctx.Go(func(ctx *stopper.Context) error {
 		for {
 			conn, err := s.listener.Accept()
 			if err != nil {
 				return nil
 			}
-			ctx.Go(func(ctx *stopper.Context) error {
-				err := s.run(ctx, conn)
-				if err != nil {
+
+			openConnsMu.Lock()
+			openConns[conn] = struct{}{}
+			openConnsMu.Unlock()
+
+			if !ctx.Go(func(ctx *stopper.Context) error {
+				defer func() {
+					openConnsMu.Lock()
+					delete(openConns, conn)
+					openConnsMu.Unlock()
+					_ = conn.Close()
+				}()
+				if err := s.run(ctx, conn); err != nil && !ctx.IsStopping() {
 					slog.ErrorContext(ctx, "handler exiting", slog.Any("error", err))
 				}
 				return nil
-			})
+			}) {
+				slog.DebugContext(ctx, "dropping unaccepted connection")
+				_ = conn.Close()
+			}
 		}
 	})
 	return s, nil
@@ -103,8 +135,22 @@ func (s *Server) Addr() net.Addr {
 	return s.listener.Addr()
 }
 
-func (s *Server) handle(_ *stopper.Context, msg message.Command, out *bufio.Writer) error {
+// Peek gets the current value of a macro variable, if set.
+func (s *Server) Peek(k message.Number) (message.Number, bool) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	n, ok := s.mu.data[k]
+	return n, ok
+}
 
+// Poke sets a macro variable.
+func (s *Server) Poke(k, v message.Number) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.mu.data[k] = v
+}
+
+func (s *Server) handle(_ *stopper.Context, msg message.Command, out *bufio.Writer) error {
 	if msg.IsWrite() {
 		num, _ := msg.Variable()
 		val, _ := msg.Value()

@@ -23,28 +23,54 @@
 package dummy
 
 import (
-	"github.com/spf13/cobra"
-	"vawter.tech/mdcmux/pkg/dummy"
-	"vawter.tech/stopper"
+	"fmt"
+	"log/slog"
+	"testing"
+
+	"github.com/stretchr/testify/require"
+	"vawter.tech/mdcmux/internal/mdctest"
+	"vawter.tech/mdcmux/pkg/conn"
+	"vawter.tech/mdcmux/pkg/message"
 )
 
-// Command is the entrypoint for the dummy MDC server.
-func Command() *cobra.Command {
-	var bind string
-	cmd := &cobra.Command{
-		Use:   "dummy",
-		Args:  cobra.NoArgs,
-		Short: "start a dummy MDC server for demo purposes",
-		RunE: func(cmd *cobra.Command, args []string) error {
-			ctx := stopper.From(cmd.Context())
-			_, err := dummy.New(ctx, bind)
-			if err != nil {
-				return err
-			}
-			return ctx.Wait()
-		},
-	}
-	cmd.Flags().StringVarP(&bind, "bind", "b", "127.0.0.1:13013", "bind address")
+func TestDummyServer(t *testing.T) {
+	slog.SetLogLoggerLevel(slog.LevelDebug)
+	r := require.New(t)
 
-	return cmd
+	ctx := mdctest.NewStopperForTest(t)
+
+	// Start a dummy server.
+	d, err := New(ctx, "127.0.0.1:0")
+	r.NoError(err)
+
+	dConn := conn.New(d.Addr().String())
+
+	check := func(r *require.Assertions, expected string, msg message.Command) {
+		resp, err := dConn.RoundTrip(ctx, msg)
+		r.NoError(err)
+		r.Equal(expected, resp.(fmt.Stringer).String())
+	}
+
+	t.Run("basic", func(t *testing.T) {
+		r := require.New(t)
+		check(r, "MODEL, MDCMUX", message.CommandMachineModel)
+		check(r, "?, ?Q999", message.BasicCommand(message.Int64(999)))
+	})
+
+	t.Run("vars", func(t *testing.T) {
+		r := require.New(t)
+
+		key := message.Int(2)
+
+		d.Poke(key, message.Int(42))
+		check(r, "MACRO, 42.0", message.QueryCommand(key))
+
+		pi := message.NewNumber(3, 141592)
+		check(r, "!", message.WriteCommand(key, pi))
+		found, ok := d.Peek(key)
+		r.True(ok)
+		r.Equal(pi, found)
+
+		check(r, "MACRO, 3.141592", message.QueryCommand(key))
+	})
 }

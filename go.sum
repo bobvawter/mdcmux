@@ -1792,5 +1792,5 @@ software.sslmate.com/src/go-pkcs12 v0.5.0 h1:EC6R394xgENTpZ4RltKydeDUjtlM5drOYIG
 software.sslmate.com/src/go-pkcs12 v0.5.0/go.mod h1:Qiz0EyvDRJjjxGyUQa2cCNZn/wMyzrRJ/qcDXOQazLI=
 vawter.tech/notify v1.0.0 h1:6H1ddpytN/8KFOcPWk2hFe0olOUWrOIwjwXCFCTL5lg=
 vawter.tech/notify v1.0.0/go.mod h1:KjbB0nJWgOBrQa8/wf6APQKbnFUJTdnXDM1nS6a6mxM=
-vawter.tech/stopper v1.0.0 h1:AoigVBhLokqIQgq4DOVDBAII6T5jQqoFs43KipSUKiQ=
-vawter.tech/stopper v1.0.0/go.mod h1:L84qKZqum4p5sX29uOR6QBKK9WkexaxM5rX7xx1pVDk=
+vawter.tech/stopper v1.0.3-0.20251016212956-6f60d2a9995d h1:PCzqUGRyIAgBLYev3t997mrKy3JsUdJlZU5xJDKZZKE=
+vawter.tech/stopper v1.0.3-0.20251016212956-6f60d2a9995d/go.mod h1:L84qKZqum4p5sX29uOR6QBKK9WkexaxM5rX7xx1pVDk=
