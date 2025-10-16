@@ -15,7 +15,7 @@ require (
 	github.com/spf13/cobra v1.9.1
 	github.com/stretchr/testify v1.10.0
 	vawter.tech/notify v1.0.0
-	vawter.tech/stopper v1.0.0
+	vawter.tech/stopper v1.0.3-0.20251016212956-6f60d2a9995d
 )
 
 require (

@@ -30,7 +30,7 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	"vawter.tech/mdcmux/internal/dummy"
+	"vawter.tech/mdcmux/pkg/dummy"
 	"vawter.tech/mdcmux/pkg/message"
 	"vawter.tech/stopper"
 )

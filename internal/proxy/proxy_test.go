@@ -23,7 +23,6 @@
 package proxy
 
 import (
-	"context"
 	"errors"
 	"fmt"
 	"io"
@@ -31,25 +30,20 @@ import (
 	"net/netip"
 	"syscall"
 	"testing"
-	"time"
 
 	"github.com/stretchr/testify/require"
-	"vawter.tech/mdcmux/internal/dummy"
+	"vawter.tech/mdcmux/internal/mdctest"
 	"vawter.tech/mdcmux/pkg/conn"
+	"vawter.tech/mdcmux/pkg/dummy"
 	"vawter.tech/mdcmux/pkg/message"
 	"vawter.tech/notify"
-	"vawter.tech/stopper"
 )
 
 func TestProxy(t *testing.T) {
 	slog.SetLogLoggerLevel(slog.LevelDebug)
 	r := require.New(t)
 
-	ctx := stopper.WithContext(context.Background())
-	defer func() {
-		ctx.Stop(100 * time.Millisecond)
-		r.NoError(ctx.Wait())
-	}()
+	ctx := mdctest.NewStopperForTest(t)
 
 	// Start a dummy server.
 	d, err := dummy.New(ctx, "127.0.0.1:0")

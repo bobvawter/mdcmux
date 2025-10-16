@@ -20,31 +20,34 @@
 //
 // SPDX-License-Identifier: MIT
 
-package dummy
+// Package mdctest contains test rig behaviors.
+package mdctest
 
 import (
-	"github.com/spf13/cobra"
-	"vawter.tech/mdcmux/pkg/dummy"
+	"context"
+	"testing"
+	"time"
+
 	"vawter.tech/stopper"
+	"vawter.tech/stopper/linger"
 )
 
-// Command is the entrypoint for the dummy MDC server.
-func Command() *cobra.Command {
-	var bind string
-	cmd := &cobra.Command{
-		Use:   "dummy",
-		Args:  cobra.NoArgs,
-		Short: "start a dummy MDC server for demo purposes",
-		RunE: func(cmd *cobra.Command, args []string) error {
-			ctx := stopper.From(cmd.Context())
-			_, err := dummy.New(ctx, bind)
-			if err != nil {
-				return err
-			}
-			return ctx.Wait()
-		},
-	}
-	cmd.Flags().StringVarP(&bind, "bind", "b", "127.0.0.1:13013", "bind address")
+func NewStopperForTest(t *testing.T) *stopper.Context {
+	const grace = 5 * time.Second
+	const timeout = 30 * time.Second
 
-	return cmd
+	stdCtx, cancel := context.WithTimeout(context.Background(), timeout)
+	t.Cleanup(cancel)
+
+	rec := linger.NewRecorder(2)
+	ctx := stopper.WithInvoker(stdCtx, rec.Invoke)
+	t.Cleanup(func() {
+		ctx.Stop(grace)
+		if err := ctx.Wait(); err != nil {
+			t.Errorf("task returned an error: %v", err)
+		}
+		linger.CheckClean(t, rec)
+	})
+
+	return ctx
 }
